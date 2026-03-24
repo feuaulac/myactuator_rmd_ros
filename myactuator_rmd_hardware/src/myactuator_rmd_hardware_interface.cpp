@@ -367,7 +367,7 @@ namespace myactuator_rmd_hardware {
         feedback_ = actuator_interface_->getMotorStatus2();
       }
 
-      double const position_state {feedback_.shaft_angle};
+      double const position_state {actuator_interface_->getMultiTurnAngle()};
       double velocity_state {feedback_.shaft_speed};
       if (velocity_low_pass_filter_) {
         velocity_state = velocity_low_pass_filter_->apply(velocity_state);
