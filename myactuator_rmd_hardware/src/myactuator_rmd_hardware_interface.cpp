@@ -354,11 +354,27 @@ namespace myactuator_rmd_hardware {
 
   void MyActuatorRmdHardwareInterface::asyncThread(std::chrono::milliseconds const& cycle_time) {
     actuator_interface_->setTimeout(timeout_);
+    double prev_pos_cmd_deg {radToDeg(async_position_command_.load())};
     while (!stop_async_thread_) {
       auto const now {std::chrono::steady_clock::now()};
       auto const wakeup_time {now + cycle_time};
+      double const position_state {actuator_interface_->getMultiTurnAngle()};
+
       if (position_interface_running_) {
-        feedback_ = actuator_interface_->sendPositionAbsoluteSetpoint(radToDeg(async_position_command_.load()), max_velocity_);
+        auto const pos_cmd_deg {radToDeg(async_position_command_.load())};
+        auto const dt_sec {cycle_time.count() / 1000.0};
+        // Estimate the trajectory's desired velocity from consecutive commands,
+        // not from position error, so tracking lag doesn't inflate the speed limit.
+        auto const trajectory_velocity {std::abs(pos_cmd_deg - prev_pos_cmd_deg) / dt_sec};
+        // Headroom above the trajectory velocity. Keeps the motor's internal planner
+        // in its acceleration phase so it never decelerates to stop at intermediate
+        // waypoints. Too high and we're back to the original jerky behavior.
+        auto constexpr velocity_headroom {1.2};
+        auto const speed {std::min(max_velocity_, trajectory_velocity * velocity_headroom)};
+        // Motor may reject zero speed; clamp to 1 dps minimum
+        auto const clamped_speed {std::max(speed, 1.0)};
+        feedback_ = actuator_interface_->sendPositionAbsoluteSetpoint(pos_cmd_deg, clamped_speed);
+        prev_pos_cmd_deg = pos_cmd_deg;
       } else if (velocity_interface_running_) {
         feedback_ = actuator_interface_->sendVelocitySetpoint(radToDeg(async_velocity_command_.load()));
       } else if (effort_interface_running_) {
@@ -366,8 +382,6 @@ namespace myactuator_rmd_hardware {
       } else {
         feedback_ = actuator_interface_->getMotorStatus2();
       }
-
-      double const position_state {actuator_interface_->getMultiTurnAngle()};
       double velocity_state {feedback_.shaft_speed};
       if (velocity_low_pass_filter_) {
         velocity_state = velocity_low_pass_filter_->apply(velocity_state);
