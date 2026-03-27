@@ -366,11 +366,15 @@ namespace myactuator_rmd_hardware {
         // Estimate the trajectory's desired velocity from consecutive commands,
         // not from position error, so tracking lag doesn't inflate the speed limit.
         auto const trajectory_velocity {std::abs(pos_cmd_deg - prev_pos_cmd_deg) / dt_sec};
-        // Headroom above the trajectory velocity. Keeps the motor's internal planner
+        // If the motor is behind (e.g. after controller handoff), allow it to
+        // catch up by also considering the velocity needed to close the error.
+        auto const error_velocity {std::abs(pos_cmd_deg - position_state) / dt_sec};
+        auto const desired_velocity {std::max(trajectory_velocity, error_velocity)};
+        // Headroom above the desired velocity. Keeps the motor's internal planner
         // in its acceleration phase so it never decelerates to stop at intermediate
         // waypoints. Too high and we're back to the original jerky behavior.
         auto constexpr velocity_headroom {1.2};
-        auto const speed {std::min(max_velocity_, trajectory_velocity * velocity_headroom)};
+        auto const speed {std::min(max_velocity_, desired_velocity * velocity_headroom)};
         // Motor may reject zero speed; clamp to 1 dps minimum
         auto const clamped_speed {std::max(speed, 1.0)};
         feedback_ = actuator_interface_->sendPositionAbsoluteSetpoint(pos_cmd_deg, clamped_speed);
