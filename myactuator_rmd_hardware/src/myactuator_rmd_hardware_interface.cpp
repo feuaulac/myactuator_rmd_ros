@@ -107,6 +107,12 @@ namespace myactuator_rmd_hardware {
     }
     std::string const motor_model {actuator_interface_->getMotorModel()};
     RCLCPP_INFO(getLogger(), "Started actuator interface for actuator model '%s'!", motor_model.c_str());
+    try {
+      auto const pos_accel {actuator_interface_->getAcceleration()};
+      RCLCPP_INFO(getLogger(), "Position planning acceleration: %d dps/s (0 = direct PI tracking)", pos_accel);
+    } catch (std::exception const& e) {
+      RCLCPP_WARN(getLogger(), "Failed to read acceleration: %s", e.what());
+    }
     stop_async_thread_.store(false);
     if (!startAsyncThread(cycle_time_)) {
       RCLCPP_FATAL(getLogger(), "Failed to start async thread!");
