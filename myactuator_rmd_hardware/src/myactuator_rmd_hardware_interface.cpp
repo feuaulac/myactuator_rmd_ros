@@ -110,8 +110,13 @@ namespace myactuator_rmd_hardware {
     try {
       auto const pos_accel {actuator_interface_->getAcceleration()};
       RCLCPP_INFO(getLogger(), "Position planning acceleration: %d dps/s (0 = direct PI tracking)", pos_accel);
+      if (pos_accel != 0) {
+        RCLCPP_INFO(getLogger(), "Setting position planning acceleration to 0 (direct PI tracking mode)");
+        actuator_interface_->setAcceleration(0, myactuator_rmd::AccelerationType::POSITION_PLANNING_ACCELERATION);
+        actuator_interface_->setAcceleration(0, myactuator_rmd::AccelerationType::POSITION_PLANNING_DECELERATION);
+      }
     } catch (std::exception const& e) {
-      RCLCPP_WARN(getLogger(), "Failed to read acceleration: %s", e.what());
+      RCLCPP_WARN(getLogger(), "Failed to read/set acceleration: %s", e.what());
     }
     stop_async_thread_.store(false);
     if (!startAsyncThread(cycle_time_)) {
