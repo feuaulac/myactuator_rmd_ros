@@ -21,6 +21,7 @@
 #include <hardware_interface/types/hardware_interface_return_values.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <myactuator_rmd/actuator_interface.hpp>
+#include <myactuator_rmd/actuator_state/acceleration_type.hpp>
 #include <rclcpp/duration.hpp>
 #include <rclcpp/logger.hpp>
 #include <rclcpp/logging.hpp>
@@ -107,6 +108,24 @@ namespace myactuator_rmd_hardware {
     }
     std::string const motor_model {actuator_interface_->getMotorModel()};
     RCLCPP_INFO(getLogger(), "Started actuator interface for actuator model '%s'!", motor_model.c_str());
+    try {
+      auto const pos_accel {actuator_interface_->getAcceleration()};
+      RCLCPP_INFO(getLogger(), "Position planning acceleration: %d dps/s", pos_accel);
+      if (info_.hardware_parameters.find("position_acceleration") != info_.hardware_parameters.end()) {
+        auto const target_accel {std::stoi(info_.hardware_parameters["position_acceleration"])};
+        if (target_accel != pos_accel) {
+          RCLCPP_INFO(getLogger(), "Setting position planning acceleration to %d dps/s", target_accel);
+          actuator_interface_->setAcceleration(
+            static_cast<std::uint32_t>(target_accel),
+            myactuator_rmd::AccelerationType::POSITION_PLANNING_ACCELERATION);
+          actuator_interface_->setAcceleration(
+            static_cast<std::uint32_t>(target_accel),
+            myactuator_rmd::AccelerationType::POSITION_PLANNING_DECELERATION);
+        }
+      }
+    } catch (std::exception const& e) {
+      RCLCPP_WARN(getLogger(), "Failed to read/set acceleration: %s", e.what());
+    }
     stop_async_thread_.store(false);
     if (!startAsyncThread(cycle_time_)) {
       RCLCPP_FATAL(getLogger(), "Failed to start async thread!");
