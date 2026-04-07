@@ -21,8 +21,14 @@ For using it add the following lines to your URDF refering to the joint of inter
     <!-- Optional: Low-pass filters for velocity and effort (0 < alpha <= 1); defaults to no filter -->
     <param name="velocity_alpha">0.1</param>
     <param name="effort_alpha">0.1</param>
-    <!-- Optional: Cycle time of the asynchronous thread; defaults to 1ms (1000Hz) -->
-    <param name="cycle_time">1</param>
+    <!-- Optional: Cycle time of the asynchronous thread in ms; defaults to 2ms (500Hz) -->
+    <param name="cycle_time">10</param>
+    <!-- Optional: Maximum velocity in dps for position commands; defaults to 720 -->
+    <param name="max_velocity">240</param>
+    <!-- Optional: CAN communication timeout in ms; 0 disables (default) -->
+    <param name="timeout">100</param>
+    <!-- Optional: Position planning acceleration/deceleration in dps/s; if omitted, motor keeps its current value -->
+    <param name="position_acceleration">10000</param>
   </hardware>
   <joint name="${joint_name}">
     <command_interface name="position"/>
