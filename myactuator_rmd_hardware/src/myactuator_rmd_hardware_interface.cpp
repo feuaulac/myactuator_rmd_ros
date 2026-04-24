@@ -69,6 +69,22 @@ namespace myactuator_rmd_hardware {
       max_velocity_ = 720.0;
       RCLCPP_INFO(getLogger(), "Max velocity not set, defaulting to '%f'.", max_velocity_);
     }
+    if (info_.hardware_parameters.find("velocity_headroom") != info_.hardware_parameters.end()) {
+      velocity_headroom_ = std::stod(info_.hardware_parameters["velocity_headroom"]);
+      RCLCPP_INFO(getLogger(),
+        "Dynamic velocity scaling enabled: max_speed >= trajectory_velocity * %.2f.",
+        velocity_headroom_);
+    } else {
+      velocity_headroom_ = 0.0;
+    }
+    if (info_.hardware_parameters.find("catchup_velocity_headroom") != info_.hardware_parameters.end()) {
+      catchup_velocity_headroom_ = std::stod(info_.hardware_parameters["catchup_velocity_headroom"]);
+      RCLCPP_INFO(getLogger(),
+        "Error-velocity catch-up enabled: max_speed >= position_error_velocity * %.2f.",
+        catchup_velocity_headroom_);
+    } else {
+      catchup_velocity_headroom_ = 0.0;
+    }
     if (info_.hardware_parameters.find("velocity_alpha") != info_.hardware_parameters.end()) {
       auto const velocity_alpha {std::stod(info_.hardware_parameters["velocity_alpha"])};
       velocity_low_pass_filter_ = std::make_unique<LowPassFilter>(velocity_alpha);
@@ -369,20 +385,51 @@ namespace myactuator_rmd_hardware {
 
   void MyActuatorRmdHardwareInterface::asyncThread(std::chrono::milliseconds const& cycle_time) {
     actuator_interface_->setTimeout(timeout_);
+    bool const dynamic_scaling_enabled {velocity_headroom_ > 0.0 || catchup_velocity_headroom_ > 0.0};
+    auto const dt_sec {cycle_time.count() / 1000.0};
+    double prev_pos_cmd_deg {radToDeg(async_position_command_.load())};
     while (!stop_async_thread_) {
       auto const now {std::chrono::steady_clock::now()};
       auto const wakeup_time {now + cycle_time};
+      // Read position once per cycle — used both for sizing max_speed (when
+      // dynamic scaling is on) and for publishing state.
+      double const position_state {actuator_interface_->getMultiTurnAngle()};
       if (position_interface_running_) {
-        feedback_ = actuator_interface_->sendPositionAbsoluteSetpoint(radToDeg(async_position_command_.load()), max_velocity_);
-      } else if (velocity_interface_running_) {
-        feedback_ = actuator_interface_->sendVelocitySetpoint(radToDeg(async_velocity_command_.load()));
-      } else if (effort_interface_running_) {
-        feedback_ = actuator_interface_->sendTorqueSetpoint(async_effort_command_.load(), torque_constant_);
+        auto const pos_cmd_deg {radToDeg(async_position_command_.load())};
+        double speed {max_velocity_};
+        if (dynamic_scaling_enabled) {
+          // Size max_speed to match the per-cycle desired velocity plus a
+          // headroom. Keeps the motor's internal planner in its acceleration
+          // phase so it doesn't stop at each intermediate waypoint when
+          // streaming trajectory points.
+          double const traj_v {std::abs(pos_cmd_deg - prev_pos_cmd_deg) / dt_sec};
+          double const err_v {std::abs(pos_cmd_deg - position_state) / dt_sec};
+          double desired_v {0.0};
+          if (velocity_headroom_ > 0.0) {
+            desired_v = std::max(desired_v, traj_v * velocity_headroom_);
+          }
+          if (catchup_velocity_headroom_ > 0.0) {
+            desired_v = std::max(desired_v, err_v * catchup_velocity_headroom_);
+          }
+          speed = std::min(max_velocity_, desired_v);
+        }
+        // Motor firmware rejects speed=0; clamp to the smallest non-zero value.
+        speed = std::max(speed, 1.0);
+        feedback_ = actuator_interface_->sendPositionAbsoluteSetpoint(pos_cmd_deg, speed);
+        prev_pos_cmd_deg = pos_cmd_deg;
       } else {
-        feedback_ = actuator_interface_->getMotorStatus2();
+        // Not in position mode: keep prev_pos_cmd_deg synced so the first tick
+        // after re-entering position mode doesn't see a stale delta.
+        prev_pos_cmd_deg = radToDeg(async_position_command_.load());
+        if (velocity_interface_running_) {
+          feedback_ = actuator_interface_->sendVelocitySetpoint(radToDeg(async_velocity_command_.load()));
+        } else if (effort_interface_running_) {
+          feedback_ = actuator_interface_->sendTorqueSetpoint(async_effort_command_.load(), torque_constant_);
+        } else {
+          feedback_ = actuator_interface_->getMotorStatus2();
+        }
       }
 
-      double const position_state {actuator_interface_->getMultiTurnAngle()};
       double velocity_state {feedback_.shaft_speed};
       if (velocity_low_pass_filter_) {
         velocity_state = velocity_low_pass_filter_->apply(velocity_state);

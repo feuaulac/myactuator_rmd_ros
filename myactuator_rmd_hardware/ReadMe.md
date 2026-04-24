@@ -29,6 +29,10 @@ For using it add the following lines to your URDF refering to the joint of inter
     <param name="timeout">100</param>
     <!-- Optional: Position planning acceleration/deceleration in dps/s; if omitted, motor keeps its current value -->
     <param name="position_acceleration">10000</param>
+    <!-- Optional: Headroom multiplier applied to the per-cycle commanded velocity when sizing max_speed on position setpoints; <=0 or omitted disables dynamic scaling and max_velocity is sent verbatim -->
+    <param name="velocity_headroom">1.2</param>
+    <!-- Optional: Headroom multiplier applied to the position-error velocity; <=0 or omitted disables catch-up (max_speed is driven only by commanded velocity) -->
+    <param name="catchup_velocity_headroom">0.5</param>
   </hardware>
   <joint name="${joint_name}">
     <command_interface name="position"/>
@@ -48,4 +52,15 @@ The `ifname` has to correspond to the name of the CAN interface as shown by `$ i
 | ![Effort and velocity without low-pass filter](./media/without_low_pass_filter.png) | ![Effort and velocity with low-pass filter](./media/with_low_pass_filter.png) |
 
 Similarly the cycle-time for the asynchronous thread interfacing the actuator through CAN can be specified. For examples refer to the `myactuator_rmd_description` package.
+
+### Dynamic velocity scaling
+
+By default, each call to `sendPositionAbsoluteSetpoint` sends `max_velocity` as the motor's `max_speed` argument. The motor's internal trapezoidal planner then decelerates to a stop at every intermediate waypoint, which produces jerky motion when streaming trajectory points.
+
+The optional `velocity_headroom` and `catchup_velocity_headroom` parameters size `max_speed` dynamically from the per-cycle desired velocity, keeping the planner in its acceleration phase:
+
+- `velocity_headroom` (double, default disabled): multiplier on the commanded trajectory velocity, estimated from consecutive position commands as `|pos_cmd - prev_pos_cmd| / cycle_time`. `1.2` = 20% headroom (a reasonable starting point). `0` or omitted disables this contribution entirely.
+- `catchup_velocity_headroom` (double, default disabled): multiplier on the position-error velocity, `|pos_cmd - position_state| / cycle_time`. Allows the motor to catch up after lagging. `0` or omitted disables catch-up. When both are set, `max_speed` is the max of the two scaled values, clamped by `max_velocity`.
+
+With both parameters omitted, `max_speed` equals `max_velocity` on every position setpoint (identical to upstream behavior). If `position_acceleration` is set to `0`, the motor bypasses its internal trapezoidal planner and `max_speed` acts purely as a velocity clamp for the internal PI tracker.
 

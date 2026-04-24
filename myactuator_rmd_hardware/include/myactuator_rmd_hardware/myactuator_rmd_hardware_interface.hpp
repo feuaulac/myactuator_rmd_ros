@@ -269,6 +269,11 @@ namespace myactuator_rmd_hardware {
       std::uint32_t actuator_id_;
       double torque_constant_;
       double max_velocity_;
+      // Multipliers on the two sources of per-cycle desired velocity used to
+      // size max_speed in sendPositionAbsoluteSetpoint. <= 0 disables that
+      // source. Both disabled = send max_velocity_ verbatim (upstream behavior).
+      double velocity_headroom_;
+      double catchup_velocity_headroom_;
       std::chrono::milliseconds timeout_;
 
       // Buffers only used by the main thread
